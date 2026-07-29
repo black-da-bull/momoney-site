@@ -1,0 +1,16 @@
+{
+  "name": "momoney-studios-site",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MoMoney Studios monorepo — apps/console (Maestro Phase Two), apps/web slot reserved. Per specs/infra-spec.md v1.0. NOTE: npm workspaces in use locally (WSL box has no corepack/pnpm without sudo); pnpm@9 + Turborepo activation is a one-step swap recorded in README.",
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w console",
+    "build": "npm run build -w console",
+    "lint": "npm run lint -w console"
+  }
+}

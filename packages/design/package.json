@@ -1,0 +1,6 @@
+{
+  "name": "@momoney/design",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CONSOLE lane tokens for the Maestro console. The console uses ZERO label DS tokens by design (US-1 two-purpose split). Label DS lives in the design workspace (_ds), vendored here only when apps/web migrates."
+}

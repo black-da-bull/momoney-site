@@ -1,0 +1,17 @@
+/* CONSOLE lane — verbatim from the design workspace's maestro pages.
+   Source: momoneystudios.com/maestro/{lander,maestro}.html :root.
+   "The instrument, not the record." Lane naming still open (PROPOSAL-console-lane.md). */
+:root{
+  --ink:#0E0C09;          /* powered-down console black */
+  --panel:#171310;        /* raised panel */
+  --panel-2:#1E1913;      /* module face */
+  --brass:#C9A227;        /* machined brass trim */
+  --brass-dim:#8A6F1E;
+  --amber:#F2A33C;        /* VU needle / hot signal */
+  --cream:#EFE7D8;        /* primary text */
+  --muted:#8C8272;        /* engraved secondary */
+  --seam:rgba(201,162,39,.28);
+  --display:'Big Shoulders Display',sans-serif;
+  --body:'Archivo',sans-serif;
+  --mono:'IBM Plex Mono',monospace;
+}
