@@ -10,6 +10,8 @@ const SIGNALS: RegExp[] = [
   /\bthe triad\b/i,
   /\block it\b/i,
   /\bbuild (it|the (song|track|prompt))\b/i,
+  /^build[.!]?$/i,
+  /\brun it on\b/i,
   /\bsession sheet\b/i,
   /\bsuno prompts?\b/i,
 ];

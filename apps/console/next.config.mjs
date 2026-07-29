@@ -3,7 +3,7 @@ const nextConfig = {
   experimental: {
     // Ensure the verbatim soul file ships inside the serverless bundle.
     outputFileTracingIncludes: {
-      "/api/chat": ["./soul/**"],
+      "/api/chat": ["./soul/**", "./standards/**"],
     },
   },
   headers: async () => [

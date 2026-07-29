@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 import { loadSoul } from "@/lib/soul";
+import { loadStandards } from "@/lib/standards";
 import { getProject, save, appendChange } from "@/lib/store";
 import { compactUST, activeAxes, applyProposal } from "@/lib/ust";
 import { detectBuildSignal } from "@/lib/buildmode";
@@ -54,12 +55,18 @@ export async function POST(req: NextRequest) {
   project.messages.push({ role: "artist", text: verbatim, at: new Date().toISOString() });
 
   const buildRequested = detectBuildSignal(verbatim);
-  const system = loadSoul() + sessionContext(project.title, compactUST(project.grid), buildRequested);
+  const system =
+    loadSoul() + loadStandards() + sessionContext(project.title, compactUST(project.grid), buildRequested);
 
-  const history = project.messages.slice(-30).map((m) => ({
-    role: m.role === "artist" ? ("user" as const) : ("assistant" as const),
-    content: m.text,
-  }));
+  // Empty-content messages poison the API (it rejects them), so a single failed turn
+  // must never wedge the session: filter them out of the request history.
+  const history = project.messages
+    .filter((m) => m.text.trim().length > 0)
+    .slice(-30)
+    .map((m) => ({
+      role: m.role === "artist" ? ("user" as const) : ("assistant" as const),
+      content: m.text,
+    }));
 
   const client = new Anthropic();
   const encoder = new TextEncoder();
@@ -80,7 +87,11 @@ export async function POST(req: NextRequest) {
         });
         await s.finalMessage();
 
-        project.messages.push({ role: "maestro", text: reply, at: new Date().toISOString() });
+        // Never persist an empty reply — an empty assistant message wedges every
+        // later call. The artist's message still saves; the turn just has no reply.
+        if (reply.trim().length > 0) {
+          project.messages.push({ role: "maestro", text: reply, at: new Date().toISOString() });
+        }
         await save(project);
 
         // The quiet pass: propose memory fills from this exchange, marked as inference.
@@ -92,7 +103,12 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "generation failed";
-        controller.enqueue(encoder.encode(`\n\n[console: ${msg}]`));
+        controller.enqueue(encoder.encode(`\n\n[console: ${msg} — say that again and I'll pick it right up.]`));
+        try {
+          await save(project); // keep the artist's message even when the reply failed
+        } catch {
+          /* keep the stream closing cleanly */
+        }
       } finally {
         controller.close();
       }

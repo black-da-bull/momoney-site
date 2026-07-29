@@ -50,7 +50,7 @@ export default function Studio() {
     if (!r.ok) return;
     const p = (await r.json()) as ProjectState;
     setTitle(p.title);
-    setMsgs(p.messages.map((m) => ({ role: m.role, text: m.text })));
+    setMsgs(p.messages.filter((m) => m.text.trim().length > 0).map((m) => ({ role: m.role, text: m.text })));
     setGrid(p.grid.filter((s) => s.axis !== "VIS")); // dormant seam stays invisible
     setChanges(p.changeLog.length);
   }, [projectId]);
@@ -100,6 +100,18 @@ export default function Studio() {
       }
     } finally {
       setBusy(false);
+      // never leave a silent empty bubble — say what happened
+      setMsgs((m) => {
+        const copy = [...m];
+        const last = copy[copy.length - 1];
+        if (last?.role === "maestro" && !last.text.trim()) {
+          copy[copy.length - 1] = {
+            role: "maestro",
+            text: "[console: that one didn't come back — say it again and I'll pick it right up.]",
+          };
+        }
+        return copy;
+      });
       // refresh the quiet memory after the exchange settles
       setTimeout(loadState, 1200);
     }
