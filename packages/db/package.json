@@ -5,6 +5,6 @@
   "description": "Drizzle schema for Vercel Postgres (infra-spec §2). Activation deferred — the console's dev slice uses a file store; this schema is the prod path the store interface swaps into.",
   "main": "schema.ts",
   "dependencies": {
-    "drizzle-orm": "^0.36.4"
+    "drizzle-orm": "^0.45.2"
   }
 }
