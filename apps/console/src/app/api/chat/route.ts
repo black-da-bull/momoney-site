@@ -26,11 +26,11 @@ ${ust}
 `;
   if (buildRequested) {
     ctx += `
-The artist just gave a build-mode signal. The factory (pipeline §4, triad §5) is not yet
-online in this console — it arrives in the next phase. Say so honestly, in one voice and
-in character: what you CAN do today is talk the song through and keep its memory; the
-full session-sheet/triad build is coming to the console soon. Do not fake a triad.
-Offer the most useful next step in conversation instead.`;
+The artist just gave a build-mode signal. The factory IS running this request — the run
+panel beside the chat shows the stages live and will present the triad when it lands.
+Acknowledge briefly, in one voice, in character (a producer saying "rolling it now" —
+one or two sentences, no tour of the phases). Do NOT generate the triad in chat; the
+factory emits it. If there's one thing worth flagging before the render, say that.`;
   }
   return ctx;
 }

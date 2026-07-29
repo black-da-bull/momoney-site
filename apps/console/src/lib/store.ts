@@ -24,6 +24,37 @@ export interface ChangeEntry {
   note: string;
 }
 
+export interface RunStage {
+  name: string;
+  status: "running" | "done" | "skipped" | "failed";
+  note: string;
+}
+
+export interface ReviewNote {
+  who: string;
+  note: string; // verbatim — review notes are first-class artifacts, never smoothed
+  severity: "observe" | "warn" | "challenge";
+}
+
+export interface Triad {
+  creativeUst: string; // → Suno lyrics prompt
+  showSummary: string; // → Suno style prompt
+  personaProfile: string; // → Suno persona bio
+  personaStyleLine: string; // → Suno persona style (≤150)
+}
+
+export interface BuildRun {
+  id: string;
+  at: string;
+  stages: RunStage[];
+  reviewNotes: ReviewNote[];
+  defended: { address: string; why: string }[]; // justified-open → artist decisions
+  foil: { promoteShow: string[]; promotePersona: string[] } | null;
+  triad: Triad | null;
+  hash: string | null; // internal derivation lock over the resolved grid
+  accepted: boolean; // true only after the artist's explicit accept-&-lock
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -32,6 +63,7 @@ export interface Project {
   grid: Slot[];
   messages: ChatMessage[];
   changeLog: ChangeEntry[]; // append-only
+  runs: BuildRun[];
 }
 
 const DATA_DIR = path.join(process.cwd(), ".data", "projects");
@@ -91,6 +123,7 @@ export async function createProject(title: string): Promise<Project> {
     grid: emptyGrid(),
     messages: [],
     changeLog: [],
+    runs: [],
   };
   await save(project);
   return project;
@@ -109,7 +142,9 @@ export async function getProject(id: string): Promise<Project | null> {
   assertFileStore();
   await ensureDir();
   try {
-    return JSON.parse(await fs.readFile(projectPath(id), "utf8")) as Project;
+    const p = JSON.parse(await fs.readFile(projectPath(id), "utf8")) as Project;
+    p.runs ??= []; // projects saved before the factory phase
+    return p;
   } catch {
     return null;
   }
