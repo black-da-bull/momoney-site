@@ -172,9 +172,20 @@ export default function Studio() {
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`} style={{ margin: m.role === "artist" ? "0 0 0 auto" : "0" }}>
                 <p className="who">{m.role === "artist" ? "You" : "Maestro"}</p>
-                <p className="body" style={{ color: m.role === "artist" ? "var(--muted)" : "var(--cream)" }}>
-                  {m.text || (busy && i === msgs.length - 1 ? "…" : "")}
-                </p>
+                {!m.text && busy && i === msgs.length - 1 ? (
+                  <p className="body" aria-live="polite">
+                    <span className="vu" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span className="vu-note">In the booth…</span>
+                  </p>
+                ) : (
+                  <p className="body" style={{ color: m.role === "artist" ? "var(--muted)" : "var(--cream)" }}>
+                    {m.text}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -193,7 +204,15 @@ export default function Studio() {
                 }}
               />
               <button className="btn solid" onClick={send} disabled={busy || !input.trim()}>
-                {busy ? "…" : "Send"}
+                {busy ? (
+                  <span className="vu" aria-label="processing">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                ) : (
+                  "Send"
+                )}
               </button>
             </div>
           </div>

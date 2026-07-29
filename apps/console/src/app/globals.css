@@ -59,4 +59,16 @@ textarea{resize:none;line-height:1.5}
 .grid-cell.proposed .val{color:var(--amber)}
 .axis-h{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;color:var(--brass);margin:1rem 0 .4rem;text-transform:uppercase}
 
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+/* VU spinner — the console thinking. Three brass bars breathing like a meter. */
+.vu{display:inline-flex;align-items:flex-end;gap:3px;height:14px;vertical-align:middle}
+.vu i{display:block;width:4px;background:var(--brass);animation:vu .9s ease-in-out infinite}
+.vu i:nth-child(1){height:6px;animation-delay:0s}
+.vu i:nth-child(2){height:11px;animation-delay:.15s}
+.vu i:nth-child(3){height:8px;animation-delay:.3s}
+@keyframes vu{0%,100%{transform:scaleY(.45);background:var(--brass-dim)}50%{transform:scaleY(1);background:var(--amber)}}
+.vu-note{font-family:var(--mono);font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-left:.6rem}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .vu i{animation:none;background:var(--amber);opacity:.7}
+}
