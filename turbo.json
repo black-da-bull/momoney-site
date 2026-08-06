@@ -7,9 +7,9 @@
     "storage_DATABASE_URL",
     "storage_POSTGRES_URL",
     "storage_PRISMA_DATABASE_URL",
-    "ANTHROPIC_API_KEY",
-    "MAESTRO_MODEL",
-    "MAESTRO_EXTRACT_MODEL"
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "MAESTRO_MODEL"
   ],
   "tasks": {
     "build": {
