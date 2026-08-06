@@ -2,7 +2,7 @@
 // Sequential zero-skip fill → draft freeze → visible staff pressure → contradiction
 // disposition → deterministic gates → definitive derivation lock → FOIL → triad → package.
 
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "./openai-anthropic-compat";
 import { loadSoul } from "./soul";
 import { loadStandards } from "./standards";
 import {
@@ -18,7 +18,7 @@ import {
 } from "./store";
 import { activeAxes, compactUST, coreGrid, findSlot, verifyCoreTopology } from "./ust";
 
-const MODEL = process.env.MAESTRO_MODEL || "claude-sonnet-5";
+const MODEL = process.env.OPENAI_MODEL || process.env.MAESTRO_MODEL || "gpt-5-mini";
 
 const AXIS_OWNERS: Record<string, string> = {
   THY: "EMP-06 Melody Scout — motif DNA, hook identity, singability",
