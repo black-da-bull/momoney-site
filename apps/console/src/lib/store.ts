@@ -1,15 +1,14 @@
-// Project memory storage.
+// Project memory storage for the Maestro core runtime.
 // Dev/default: JSON file store under .data/ (git-ignored).
-// Prod: Vercel Postgres via packages/db (drizzle) — activation deferred until the
-// database is provisioned; the interface below is what that implementation swaps into.
+// Production Postgres remains a separate activation step.
 
 import { promises as fs } from "fs";
 import path from "path";
-import { Slot, emptyGrid } from "./ust";
+import { Slot, emptyGrid, verifyCoreTopology } from "./ust";
 
 export interface ChatMessage {
   role: "artist" | "maestro";
-  text: string; // artist text stored verbatim — raw input is immutable
+  text: string;
   at: string;
 }
 
@@ -24,6 +23,46 @@ export interface ChangeEntry {
   note: string;
 }
 
+export interface ContradictionRecord {
+  id: string;
+  addresses: string[];
+  issue: string;
+  conflictType: "cross_axis" | "ownership" | "feasibility" | "excellence" | "continuity" | "authorship" | "downstream_projection";
+  materiality: "non_blocking" | "blocking";
+  openedBy: string;
+  openedAt: string;
+  resolutionState: "open" | "resolved" | "carried_explicitly" | "operator_decision_required";
+  resolution: string | null;
+  closedBy: string | null;
+  closedAt: string | null;
+}
+
+export interface DissentRecord {
+  id: string;
+  employeeId: string;
+  addresses: string[];
+  objection: string;
+  domainBasis: string;
+  predictedFailure: string;
+  severity: "advisory" | "material" | "blocking";
+  disposition: "open" | "accepted" | "answered" | "overruled_by_operator" | "carried_with_risk" | "unresolved";
+  impactAcknowledged: boolean;
+  at: string;
+}
+
+export interface GateResult {
+  id: string;
+  gateType: "SEM" | "SEG" | "G_CARD" | "SE20";
+  evaluatedAddresses: string[];
+  evidenceRefs: string[];
+  findings: string[];
+  blockers: string[];
+  requiredActions: string[];
+  verdict: "pass" | "conditional" | "hold" | "fail";
+  rerouteTarget: string | null;
+  at: string;
+}
+
 export interface RunStage {
   name: string;
   status: "running" | "done" | "skipped" | "failed";
@@ -32,15 +71,15 @@ export interface RunStage {
 
 export interface ReviewNote {
   who: string;
-  note: string; // verbatim — review notes are first-class artifacts, never smoothed
+  note: string;
   severity: "observe" | "warn" | "challenge";
 }
 
 export interface Triad {
-  creativeUst: string; // → Suno lyrics prompt
-  showSummary: string; // → Suno style prompt
-  personaProfile: string; // → Suno persona bio
-  personaStyleLine: string; // → Suno persona style (≤150)
+  creativeUst: string;
+  showSummary: string;
+  personaProfile: string;
+  personaStyleLine: string;
 }
 
 export interface BuildRun {
@@ -48,21 +87,29 @@ export interface BuildRun {
   at: string;
   stages: RunStage[];
   reviewNotes: ReviewNote[];
-  defended: { address: string; why: string }[]; // justified-open → artist decisions
+  defended: { address: string; why: string }[];
+  contradictionIds: string[];
+  dissentIds: string[];
+  gateResultIds: string[];
   foil: { promoteShow: string[]; promotePersona: string[] } | null;
   triad: Triad | null;
-  hash: string | null; // internal derivation lock over the resolved grid
-  accepted: boolean; // true only after the artist's explicit accept-&-lock
+  draftFreezeHash: string | null;
+  definitiveLockHash: string | null;
+  hash: string | null;
+  accepted: boolean;
 }
 
 export interface Project {
   id: string;
   title: string;
   createdAt: string;
-  seedRaw: string | null; // the artist's first input, verbatim, never edited
+  seedRaw: string | null;
   grid: Slot[];
   messages: ChatMessage[];
-  changeLog: ChangeEntry[]; // append-only
+  changeLog: ChangeEntry[];
+  contradictions: ContradictionRecord[];
+  dissent: DissentRecord[];
+  gates: GateResult[];
   runs: BuildRun[];
 }
 
@@ -70,10 +117,7 @@ const DATA_DIR = path.join(process.cwd(), ".data", "projects");
 
 function assertFileStore() {
   if (process.env.DATABASE_URL) {
-    // Honest failure over silent divergence: the pg store is not wired yet.
-    throw new Error(
-      "DATABASE_URL is set but the Postgres store is not wired yet (deferred to the factory phase). Unset it to use the file store.",
-    );
+    throw new Error("DATABASE_URL is set but the Postgres event store is not wired. Unset it to use the local file store.");
   }
 }
 
@@ -86,18 +130,54 @@ function projectPath(id: string) {
   return path.join(DATA_DIR, `${id}.json`);
 }
 
+function normalizeProject(project: Project): Project {
+  project.messages ??= [];
+  project.changeLog ??= [];
+  project.contradictions ??= [];
+  project.dissent ??= [];
+  project.gates ??= [];
+  project.runs ??= [];
+
+  const topology = verifyCoreTopology(project.grid ?? []);
+  if (!topology.ok) {
+    const replacement = emptyGrid();
+    for (const oldSlot of project.grid ?? []) {
+      const exact = replacement.find((slot) => slot.address === oldSlot.address);
+      if (exact) Object.assign(exact, oldSlot);
+    }
+    project.grid = replacement;
+    appendChange(project, {
+      address: "*",
+      from: null,
+      to: "200-address core topology",
+      status: "MIGRATED",
+      provenance: "runtime-contract-v0.1",
+      note: `topology normalized: ${topology.errors.join("; ")}`,
+    });
+  }
+
+  for (const run of project.runs) {
+    run.contradictionIds ??= [];
+    run.dissentIds ??= [];
+    run.gateResultIds ??= [];
+    run.draftFreezeHash ??= run.hash ?? null;
+    run.definitiveLockHash ??= run.accepted ? run.hash ?? null : null;
+  }
+  return project;
+}
+
 export async function listProjects(): Promise<Pick<Project, "id" | "title" | "createdAt">[]> {
   assertFileStore();
   await ensureDir();
   const files = await fs.readdir(DATA_DIR);
   const out: Pick<Project, "id" | "title" | "createdAt">[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
     try {
-      const p = JSON.parse(await fs.readFile(path.join(DATA_DIR, f), "utf8")) as Project;
-      out.push({ id: p.id, title: p.title, createdAt: p.createdAt });
+      const project = normalizeProject(JSON.parse(await fs.readFile(path.join(DATA_DIR, file), "utf8")) as Project);
+      out.push({ id: project.id, title: project.title, createdAt: project.createdAt });
     } catch {
-      // unreadable file: skip, never delete
+      // Preserve unreadable files; never delete them automatically.
     }
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -106,23 +186,21 @@ export async function listProjects(): Promise<Pick<Project, "id" | "title" | "cr
 export async function createProject(title: string): Promise<Project> {
   assertFileStore();
   await ensureDir();
-  const id =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "untitled";
-  let unique = id;
-  let n = 1;
-  while (await exists(unique)) unique = `${id}-${++n}`;
+  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "untitled";
+  let id = base;
+  let counter = 1;
+  while (await exists(id)) id = `${base}-${++counter}`;
   const project: Project = {
-    id: unique,
+    id,
     title,
     createdAt: new Date().toISOString(),
     seedRaw: null,
     grid: emptyGrid(),
     messages: [],
     changeLog: [],
+    contradictions: [],
+    dissent: [],
+    gates: [],
     runs: [],
   };
   await save(project);
@@ -142,9 +220,7 @@ export async function getProject(id: string): Promise<Project | null> {
   assertFileStore();
   await ensureDir();
   try {
-    const p = JSON.parse(await fs.readFile(projectPath(id), "utf8")) as Project;
-    p.runs ??= []; // projects saved before the factory phase
-    return p;
+    return normalizeProject(JSON.parse(await fs.readFile(projectPath(id), "utf8")) as Project);
   } catch {
     return null;
   }
@@ -158,13 +234,6 @@ export async function save(project: Project): Promise<void> {
   await fs.rename(tmp, projectPath(project.id));
 }
 
-export function appendChange(
-  project: Project,
-  entry: Omit<ChangeEntry, "seq" | "at">,
-): void {
-  project.changeLog.push({
-    seq: project.changeLog.length + 1,
-    at: new Date().toISOString(),
-    ...entry,
-  });
+export function appendChange(project: Project, entry: Omit<ChangeEntry, "seq" | "at">): void {
+  project.changeLog.push({ seq: project.changeLog.length + 1, at: new Date().toISOString(), ...entry });
 }
