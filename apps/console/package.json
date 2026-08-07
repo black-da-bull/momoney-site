@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev -p 3311",
-    "build": "prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && next build",
+    "db:migrate": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "start": "next start -p 3311",
     "lint": "next lint"
