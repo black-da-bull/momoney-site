@@ -15,7 +15,7 @@ const EXTRACT_MODEL = process.env.OPENAI_EXTRACT_MODEL || process.env.OPENAI_MOD
 function sessionContext(title: string, ust: string, buildRequested: boolean): string {
   let ctx = `\n\n---\n\n## SESSION CONTEXT (backstage — never shown or mentioned to the artist)\n\nProject: "${title}"\n\nThe song's memory so far (your internal grid — speak plain music talk, never addresses):\n${ust}\n`;
   if (buildRequested) {
-    ctx += `\nThe artist just gave a build-mode signal. The factory IS running this request — the run\npanel beside the chat shows the stages live and will present the triad when it lands.\nAcknowledge briefly, in one voice, in character (a producer saying "rolling it now" —\none or two sentences, no tour of the phases). Do NOT generate the triad in chat; the\nfactory emits it. If there's one thing worth flagging before the render, say that.`;
+    ctx += `\nThe artist just gave a build-mode signal. The factory IS running this request — the run\npanel beside the chat shows the stages live and will present the triad when it lands.\nAcknowledge briefly, in one voice, in character (a producer saying "rolling it now" —\none or two sentences, no tour of the phases). Do NOT generate the triad in chat; the\nfactory emits it. Artist-supplied lyrics are immutable during the build: do not promise to rewrite, tighten, rescore, replace, or otherwise alter them. If meter, phrasing, or arrangement creates a feasibility concern, flag the constraint without changing the lyric text.`;
   }
   return ctx;
 }
