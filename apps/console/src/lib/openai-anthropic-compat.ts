@@ -79,7 +79,7 @@ class Anthropic {
           const delta = chunk.choices[0]?.delta?.content;
           if (!delta) continue;
           text += delta;
-          for (const handler of handlers) handler(delta);
+          handlers.forEach((handler) => handler(delta));
         }
         return { content: [{ type: "text", text }] };
       };
