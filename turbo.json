@@ -1,5 +1,16 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "PRISMA_DATABASE_URL",
+    "storage_DATABASE_URL",
+    "storage_POSTGRES_URL",
+    "storage_PRISMA_DATABASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "MAESTRO_MODEL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

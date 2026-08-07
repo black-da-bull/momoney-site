@@ -1,191 +1,63 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
-import { loadSoul } from "@/lib/soul";
-import { loadStandards } from "@/lib/standards";
-import { getProject, save, appendChange } from "@/lib/store";
-import { compactUST, activeAxes, applyProposal } from "@/lib/ust";
-import { detectBuildSignal } from "@/lib/buildmode";
+import { appendDbDialogue, getDbProject, nextDialogueSequence, updateDbProject } from "@/lib/maestro/db";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-const CHAT_MODEL = process.env.MAESTRO_MODEL || "claude-sonnet-5";
-const EXTRACT_MODEL = process.env.MAESTRO_EXTRACT_MODEL || "claude-haiku-4-5-20251001";
-
-function sessionContext(title: string, ust: string, buildRequested: boolean): string {
-  let ctx = `
-
----
-
-## SESSION CONTEXT (backstage — never shown or mentioned to the artist)
-
-Project: "${title}"
-
-The song's memory so far (your internal grid — speak plain music talk, never addresses):
-${ust}
-`;
-  if (buildRequested) {
-    ctx += `
-The artist just gave a build-mode signal. The factory IS running this request — the run
-panel beside the chat shows the stages live and will present the triad when it lands.
-Acknowledge briefly, in one voice, in character (a producer saying "rolling it now" —
-one or two sentences, no tour of the phases). Do NOT generate the triad in chat; the
-factory emits it. If there's one thing worth flagging before the render, say that.`;
-  }
-  return ctx;
+function isBuild(text: string) {
+  return /^(build|run|execute|render|go)$/i.test(text.trim()) || /\b(run|build|execute)\b.*\b(maestro|factory|song)\b/i.test(text);
 }
 
 export async function POST(req: NextRequest) {
-  const { projectId, message } = (await req.json()) as { projectId: string; message: string };
-  if (!projectId || !message?.trim()) {
-    return Response.json({ error: "projectId and message required" }, { status: 400 });
-  }
-  const project = await getProject(projectId);
+  const { projectId, message } = (await req.json()) as { projectId?: string; message?: string };
+  if (!projectId || !message?.trim()) return Response.json({ error: "projectId and message required" }, { status: 400 });
+  const project = await getDbProject(projectId);
   if (!project) return Response.json({ error: "unknown project" }, { status: 404 });
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to apps/console/.env.local (server-side only)." },
-      { status: 503 },
-    );
-  }
 
-  // Raw input is preserved immutably (soul §2). First input is the seed.
-  const verbatim = message;
-  if (project.seedRaw == null) project.seedRaw = verbatim;
-  project.messages.push({ role: "artist", text: verbatim, at: new Date().toISOString() });
-
-  const buildRequested = detectBuildSignal(verbatim);
-  const system =
-    loadSoul() + loadStandards() + sessionContext(project.title, compactUST(project.grid), buildRequested);
-
-  // Empty-content messages poison the API (it rejects them), so a single failed turn
-  // must never wedge the session: filter them out of the request history.
-  const history = project.messages
-    .filter((m) => m.text.trim().length > 0)
-    .slice(-30)
-    .map((m) => ({
-      role: m.role === "artist" ? ("user" as const) : ("assistant" as const),
-      content: m.text,
-    }));
-
-  const client = new Anthropic();
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let reply = "";
-      try {
-        const s = client.messages.stream({
-          model: CHAT_MODEL,
-          max_tokens: 1500,
-          system,
-          messages: history,
-        });
-        s.on("text", (t) => {
-          reply += t;
-          controller.enqueue(encoder.encode(t));
-        });
-        await s.finalMessage();
-
-        // Never persist an empty reply — an empty assistant message wedges every
-        // later call. The artist's message still saves; the turn just has no reply.
-        if (reply.trim().length > 0) {
-          project.messages.push({ role: "maestro", text: reply, at: new Date().toISOString() });
-        }
-        await save(project);
-
-        // The quiet pass: propose memory fills from this exchange, marked as inference.
-        // Failures here never surface to the artist.
-        try {
-          await quietMemoryPass(client, project.id, verbatim, reply);
-        } catch {
-          /* quiet by design */
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "generation failed";
-        controller.enqueue(encoder.encode(`\n\n[console: ${msg} — say that again and I'll pick it right up.]`));
-        try {
-          await save(project); // keep the artist's message even when the reply failed
-        } catch {
-          /* keep the stream closing cleanly */
-        }
-      } finally {
-        controller.close();
-      }
-    },
+  const text = message.trim();
+  const buildRequested = isBuild(text);
+  const seq = await nextDialogueSequence(projectId);
+  await appendDbDialogue({
+    id: `dlg-${projectId}-${seq}`,
+    projectId,
+    sequence: seq,
+    kind: "OPERATOR_INPUT",
+    speakerId: "operator",
+    speakerType: "HUMAN",
+    text,
+    targetAddresses: [],
+    evidenceRefs: [],
+    createdAt: new Date().toISOString(),
   });
 
-  return new Response(stream, {
+  if (!buildRequested) {
+    const seedRaw = project.seedRaw ? `${project.seedRaw}\n\n--- OPERATOR DELTA ---\n${text}` : text;
+    await updateDbProject(projectId, { seedRaw });
+  }
+
+  const reply = buildRequested
+    ? "BUILD received. The staffed Maestro runtime is taking the current song through Technical UST resolution, interwoven SEM pressure, round-robin challenge, red-pen, definitive lock, FOIL, and derivative surfaces. The factory panel is the execution record."
+    : "Captured as operator source material. I have not rewritten or silently normalized it. When you send BUILD, the staffed runtime will work this state end-to-end.";
+
+  const replySeq = await nextDialogueSequence(projectId);
+  await appendDbDialogue({
+    id: `dlg-${projectId}-${replySeq}`,
+    projectId,
+    sequence: replySeq,
+    kind: "SYSTEM_NOTE",
+    speakerId: "controller",
+    speakerType: "SYSTEM",
+    text: reply,
+    targetAddresses: [],
+    evidenceRefs: [],
+    createdAt: new Date().toISOString(),
+  });
+
+  return new Response(reply, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Build-Signal": buildRequested ? "1" : "0",
     },
   });
-}
-
-async function quietMemoryPass(
-  client: Anthropic,
-  projectId: string,
-  artistText: string,
-  maestroText: string,
-) {
-  // Reload: the streamed save above may have raced with another request.
-  const project = await getProject(projectId);
-  if (!project) return;
-
-  const axisSpec = activeAxes()
-    .map((a) => `${a.code} (${a.name}): ${a.keys.join(", ")}`)
-    .join("\n");
-
-  const res = await client.messages.create({
-    model: EXTRACT_MODEL,
-    max_tokens: 600,
-    system:
-      `You extract song decisions from a studio conversation into an addressable grid. ` +
-      `Only record what the exchange actually establishes or strongly implies about THIS song. ` +
-      `Never invent. Empty output is normal and correct.\n\nAddresses (AXIS.key):\n${axisSpec}\n\n` +
-      `Return ONLY a JSON array (no prose, no fences): ` +
-      `[{"address":"THY.tempo","value":"<concise, <=14 words>","why":"<what in the exchange implies it>"}]`,
-    messages: [
-      {
-        role: "user",
-        content: `Current grid:\n${compactUST(project.grid)}\n\nARTIST said:\n${artistText}\n\nMAESTRO replied:\n${maestroText}`,
-      },
-    ],
-  });
-
-  const text = res.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
-    .trim();
-
-  let proposals: { address: string; value: string; why: string }[] = [];
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) proposals = parsed;
-  } catch {
-    return; // unparseable → skip quietly, never guess
-  }
-
-  let touched = false;
-  for (const p of proposals.slice(0, 12)) {
-    if (!p?.address || !p?.value) continue;
-    const result = applyProposal(project.grid, p.address, String(p.value), `maestro-inference: ${p.why || "from conversation"}`);
-    if (result.ok) {
-      appendChange(project, {
-        address: p.address,
-        from: result.prior?.value ?? null,
-        to: String(p.value),
-        status: "PROPOSED",
-        provenance: `maestro-inference: ${p.why || "from conversation"}`,
-        note: "quiet fill from conversation",
-      });
-      touched = true;
-    }
-  }
-  if (touched) await save(project);
 }
