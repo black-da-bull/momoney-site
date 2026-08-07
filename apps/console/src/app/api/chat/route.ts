@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@/lib/openai-anthropic-compat";
 import { NextRequest } from "next/server";
 import { loadSoul } from "@/lib/soul";
 import { loadStandards } from "@/lib/standards";
@@ -9,28 +9,13 @@ import { detectBuildSignal } from "@/lib/buildmode";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const CHAT_MODEL = process.env.MAESTRO_MODEL || "claude-sonnet-5";
-const EXTRACT_MODEL = process.env.MAESTRO_EXTRACT_MODEL || "claude-haiku-4-5-20251001";
+const CHAT_MODEL = process.env.OPENAI_MODEL || process.env.MAESTRO_MODEL || "gpt-5-mini";
+const EXTRACT_MODEL = process.env.OPENAI_EXTRACT_MODEL || process.env.OPENAI_MODEL || process.env.MAESTRO_MODEL || "gpt-5-mini";
 
 function sessionContext(title: string, ust: string, buildRequested: boolean): string {
-  let ctx = `
-
----
-
-## SESSION CONTEXT (backstage — never shown or mentioned to the artist)
-
-Project: "${title}"
-
-The song's memory so far (your internal grid — speak plain music talk, never addresses):
-${ust}
-`;
+  let ctx = `\n\n---\n\n## SESSION CONTEXT (backstage — never shown or mentioned to the artist)\n\nProject: "${title}"\n\nThe song's memory so far (your internal grid — speak plain music talk, never addresses):\n${ust}\n`;
   if (buildRequested) {
-    ctx += `
-The artist just gave a build-mode signal. The factory IS running this request — the run
-panel beside the chat shows the stages live and will present the triad when it lands.
-Acknowledge briefly, in one voice, in character (a producer saying "rolling it now" —
-one or two sentences, no tour of the phases). Do NOT generate the triad in chat; the
-factory emits it. If there's one thing worth flagging before the render, say that.`;
+    ctx += `\nThe artist just gave a build-mode signal. The factory IS running this request — the run\npanel beside the chat shows the stages live and will present the triad when it lands.\nAcknowledge briefly, in one voice, in character (a producer saying "rolling it now" —\none or two sentences, no tour of the phases). Do NOT generate the triad in chat; the\nfactory emits it. If there's one thing worth flagging before the render, say that.`;
   }
   return ctx;
 }
@@ -42,24 +27,20 @@ export async function POST(req: NextRequest) {
   }
   const project = await getProject(projectId);
   if (!project) return Response.json({ error: "unknown project" }, { status: 404 });
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return Response.json(
-      { error: "ANTHROPIC_API_KEY is not set. Add it to apps/console/.env.local (server-side only)." },
+      { error: "OPENAI_API_KEY is not set for this Vercel environment." },
       { status: 503 },
     );
   }
 
-  // Raw input is preserved immutably (soul §2). First input is the seed.
   const verbatim = message;
   if (project.seedRaw == null) project.seedRaw = verbatim;
   project.messages.push({ role: "artist", text: verbatim, at: new Date().toISOString() });
 
   const buildRequested = detectBuildSignal(verbatim);
-  const system =
-    loadSoul() + loadStandards() + sessionContext(project.title, compactUST(project.grid), buildRequested);
+  const system = loadSoul() + loadStandards() + sessionContext(project.title, compactUST(project.grid), buildRequested);
 
-  // Empty-content messages poison the API (it rejects them), so a single failed turn
-  // must never wedge the session: filter them out of the request history.
   const history = project.messages
     .filter((m) => m.text.trim().length > 0)
     .slice(-30)
@@ -87,27 +68,23 @@ export async function POST(req: NextRequest) {
         });
         await s.finalMessage();
 
-        // Never persist an empty reply — an empty assistant message wedges every
-        // later call. The artist's message still saves; the turn just has no reply.
         if (reply.trim().length > 0) {
           project.messages.push({ role: "maestro", text: reply, at: new Date().toISOString() });
         }
         await save(project);
 
-        // The quiet pass: propose memory fills from this exchange, marked as inference.
-        // Failures here never surface to the artist.
         try {
           await quietMemoryPass(client, project.id, verbatim, reply);
         } catch {
-          /* quiet by design */
+          // Quiet memory extraction is non-blocking by design.
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "generation failed";
         controller.enqueue(encoder.encode(`\n\n[console: ${msg} — say that again and I'll pick it right up.]`));
         try {
-          await save(project); // keep the artist's message even when the reply failed
+          await save(project);
         } catch {
-          /* keep the stream closing cleanly */
+          // Keep the stream closing cleanly even if persistence is unavailable.
         }
       } finally {
         controller.close();
@@ -130,7 +107,6 @@ async function quietMemoryPass(
   artistText: string,
   maestroText: string,
 ) {
-  // Reload: the streamed save above may have raced with another request.
   const project = await getProject(projectId);
   if (!project) return;
 
@@ -146,7 +122,7 @@ async function quietMemoryPass(
       `Only record what the exchange actually establishes or strongly implies about THIS song. ` +
       `Never invent. Empty output is normal and correct.\n\nAddresses (AXIS.key):\n${axisSpec}\n\n` +
       `Return ONLY a JSON array (no prose, no fences): ` +
-      `[{"address":"THY.tempo","value":"<concise, <=14 words>","why":"<what in the exchange implies it>"}]`,
+      `[{"address":"THY.K1.S1","value":"<concise, <=14 words>","why":"<what in the exchange implies it>"}]`,
     messages: [
       {
         role: "user",
@@ -168,7 +144,7 @@ async function quietMemoryPass(
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed)) proposals = parsed;
   } catch {
-    return; // unparseable → skip quietly, never guess
+    return;
   }
 
   let touched = false;
