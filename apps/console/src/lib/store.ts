@@ -1,11 +1,11 @@
 // Deployment-safe project memory for the Maestro core runtime.
-// Production/preview: Prisma Postgres when DATABASE_URL is present.
-// Local development: JSON files under .data/projects.
+// Preview/production: Prisma Postgres when a supported database URL is present.
+// Local development fallback: JSON files under .data/projects.
 
 import { promises as fs } from "fs";
 import path from "path";
 import type { Prisma } from "@prisma/client";
-import { prisma } from "./prisma";
+import { ensureMaestroSchema, hasDatabase, prisma } from "./prisma";
 import { Slot, emptyGrid, verifyCoreTopology } from "./ust";
 
 export interface ChatMessage { role: "artist" | "maestro"; text: string; at: string }
@@ -20,7 +20,6 @@ export interface BuildRun { id: string; at: string; stages: RunStage[]; reviewNo
 export interface Project { id: string; title: string; createdAt: string; seedRaw: string | null; grid: Slot[]; messages: ChatMessage[]; changeLog: ChangeEntry[]; contradictions: ContradictionRecord[]; dissent: DissentRecord[]; gates: GateResult[]; runs: BuildRun[] }
 
 const DATA_DIR = path.join(process.cwd(), ".data", "projects");
-const usesDatabase = () => Boolean(process.env.DATABASE_URL);
 
 async function ensureDir() { await fs.mkdir(DATA_DIR, { recursive: true }); }
 function projectPath(id: string) {
@@ -56,6 +55,7 @@ function normalizeProject(project: Project): Project {
 }
 
 async function dbExists(id: string) {
+  await ensureMaestroSchema();
   return Boolean(await prisma.maestroProject.findUnique({ where: { id }, select: { id: true } }));
 }
 async function fileExists(id: string) {
@@ -63,7 +63,8 @@ async function fileExists(id: string) {
 }
 
 export async function listProjects(): Promise<Pick<Project, "id" | "title" | "createdAt">[]> {
-  if (usesDatabase()) {
+  if (hasDatabase()) {
+    await ensureMaestroSchema();
     const rows = await prisma.maestroProject.findMany({ orderBy: { updatedAt: "desc" }, select: { id: true, title: true, createdAt: true } });
     return rows.map((row) => ({ id: row.id, title: row.title, createdAt: row.createdAt.toISOString() }));
   }
@@ -84,14 +85,15 @@ export async function createProject(title: string): Promise<Project> {
   const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "untitled";
   let id = base;
   let counter = 1;
-  while (usesDatabase() ? await dbExists(id) : await fileExists(id)) id = `${base}-${++counter}`;
+  while (hasDatabase() ? await dbExists(id) : await fileExists(id)) id = `${base}-${++counter}`;
   const project: Project = { id, title, createdAt: new Date().toISOString(), seedRaw: null, grid: emptyGrid(), messages: [], changeLog: [], contradictions: [], dissent: [], gates: [], runs: [] };
   await save(project);
   return project;
 }
 
 export async function getProject(id: string): Promise<Project | null> {
-  if (usesDatabase()) {
+  if (hasDatabase()) {
+    await ensureMaestroSchema();
     const row = await prisma.maestroProject.findUnique({ where: { id } });
     return row ? normalizeProject(row.payload as unknown as Project) : null;
   }
@@ -102,7 +104,8 @@ export async function getProject(id: string): Promise<Project | null> {
 
 export async function save(project: Project): Promise<void> {
   const normalized = normalizeProject(project);
-  if (usesDatabase()) {
+  if (hasDatabase()) {
+    await ensureMaestroSchema();
     await prisma.maestroProject.upsert({
       where: { id: normalized.id },
       create: { id: normalized.id, title: normalized.title, createdAt: new Date(normalized.createdAt), payload: normalized as unknown as Prisma.InputJsonValue },
