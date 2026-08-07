@@ -12,12 +12,88 @@ export interface ChatMessage { role: "artist" | "maestro"; text: string; at: str
 export interface ChangeEntry { seq: number; at: string; address: string; from: string | null; to: string | null; status: string; provenance: string; note: string }
 export interface ContradictionRecord { id: string; addresses: string[]; issue: string; conflictType: "cross_axis" | "ownership" | "feasibility" | "excellence" | "continuity" | "authorship" | "downstream_projection"; materiality: "non_blocking" | "blocking"; openedBy: string; openedAt: string; resolutionState: "open" | "resolved" | "carried_explicitly" | "operator_decision_required"; resolution: string | null; closedBy: string | null; closedAt: string | null }
 export interface DissentRecord { id: string; employeeId: string; addresses: string[]; objection: string; domainBasis: string; predictedFailure: string; severity: "advisory" | "material" | "blocking"; disposition: "open" | "accepted" | "answered" | "overruled_by_operator" | "carried_with_risk" | "unresolved"; impactAcknowledged: boolean; at: string }
+
+export type SemKey = "K1" | "K2" | "K3" | "K4" | "K5" | "K6" | "K7";
+export interface SemDelta {
+  address: string;
+  scores: Partial<Record<SemKey, number>>;
+  issueType: string;
+  evidence: string[];
+  disposition: "pass" | "conditional" | "hold";
+  nextAction: string | null;
+  stopFlags: string[];
+}
+export interface ProposedUstDelta { address: string; value: string; rationale: string }
+export interface NullDisposition { address: string; why: string }
+export interface EmployeeTurnResult {
+  id: string;
+  employeeId: string;
+  axis: string | null;
+  assignedAddresses: string[];
+  summary: string;
+  proposedUstDeltas: ProposedUstDelta[];
+  preservedNulls: NullDisposition[];
+  escalations: { addresses: string[]; reason: string; target: string }[];
+  challenges: { addresses: string[]; issue: string; severity: "advisory" | "material" | "blocking" }[];
+  semDeltas: SemDelta[];
+  downstreamRisks: { addresses: string[]; risk: string }[];
+  objections: { addresses: string[]; objection: string }[];
+  evidence: string[];
+  at: string;
+}
+export interface GCard {
+  id: string;
+  employeeTurnId: string;
+  verdict: "PASS" | "CONDITIONAL" | "HOLD";
+  score: number | null;
+  deficiencies: string[];
+  requiredActions: string[];
+  blockingFlags: string[];
+  addressPointers: string[];
+  at: string;
+}
+
 export interface GateResult { id: string; gateType: "SEM" | "SEG" | "G_CARD" | "SE20"; evaluatedAddresses: string[]; evidenceRefs: string[]; findings: string[]; blockers: string[]; requiredActions: string[]; verdict: "pass" | "conditional" | "hold" | "fail"; rerouteTarget: string | null; at: string }
-export interface RunStage { name: string; status: "running" | "done" | "skipped" | "failed"; note: string }
+export interface RunStage { name: string; status: "running" | "done" | "skipped" | "failed" | "waiting_human"; note: string }
 export interface ReviewNote { who: string; note: string; severity: "observe" | "warn" | "challenge" }
 export interface Triad { creativeUst: string; showSummary: string; personaProfile: string; personaStyleLine: string }
-export interface BuildRun { id: string; at: string; stages: RunStage[]; reviewNotes: ReviewNote[]; defended: { address: string; why: string }[]; contradictionIds: string[]; dissentIds: string[]; gateResultIds: string[]; foil: { promoteShow: string[]; promotePersona: string[] } | null; triad: Triad | null; draftFreezeHash: string | null; definitiveLockHash: string | null; hash: string | null; accepted: boolean }
-export interface Project { id: string; title: string; createdAt: string; seedRaw: string | null; grid: Slot[]; messages: ChatMessage[]; changeLog: ChangeEntry[]; contradictions: ContradictionRecord[]; dissent: DissentRecord[]; gates: GateResult[]; runs: BuildRun[] }
+export type RunPhase = "INTAKE" | "UST_INITIALIZED" | "SEQUENTIAL_AXIS_WORK" | "DRAFT_FREEZE" | "ROUND_ROBIN" | "RED_PEN_REVIEW" | "WAITING_HUMAN" | "DEFINITIVE_LOCK" | "FOIL_REVERSE_PASS" | "SURFACE_REVIEW" | "SURFACE_FREEZE" | "PACKAGED" | "BLOCKED" | "FAILED";
+export interface BuildRun {
+  id: string;
+  at: string;
+  phase: RunPhase;
+  stages: RunStage[];
+  reviewNotes: ReviewNote[];
+  defended: { address: string; why: string }[];
+  employeeTurnIds: string[];
+  contradictionIds: string[];
+  dissentIds: string[];
+  gateResultIds: string[];
+  gCardIds: string[];
+  foil: { promoteShow: string[]; promotePersona: string[] } | null;
+  triad: Triad | null;
+  draftFreezeHash: string | null;
+  definitiveLockHash: string | null;
+  hash: string | null;
+  operatorLockAt: string | null;
+  surfaceFrozenAt: string | null;
+  accepted: boolean;
+}
+export interface Project {
+  id: string;
+  title: string;
+  createdAt: string;
+  seedRaw: string | null;
+  grid: Slot[];
+  messages: ChatMessage[];
+  changeLog: ChangeEntry[];
+  employeeTurns: EmployeeTurnResult[];
+  gCards: GCard[];
+  contradictions: ContradictionRecord[];
+  dissent: DissentRecord[];
+  gates: GateResult[];
+  runs: BuildRun[];
+}
 
 const DATA_DIR = path.join(process.cwd(), ".data", "projects");
 
@@ -30,6 +106,8 @@ function projectPath(id: string) {
 function normalizeProject(project: Project): Project {
   project.messages ??= [];
   project.changeLog ??= [];
+  project.employeeTurns ??= [];
+  project.gCards ??= [];
   project.contradictions ??= [];
   project.dissent ??= [];
   project.gates ??= [];
@@ -45,11 +123,16 @@ function normalizeProject(project: Project): Project {
     appendChange(project, { address: "*", from: null, to: "200-address core topology", status: "MIGRATED", provenance: "runtime-contract-v0.1", note: `topology normalized: ${topology.errors.join("; ")}` });
   }
   for (const run of project.runs) {
+    run.phase ??= run.triad ? "PACKAGED" : run.definitiveLockHash ? "DEFINITIVE_LOCK" : "INTAKE";
+    run.employeeTurnIds ??= [];
     run.contradictionIds ??= [];
     run.dissentIds ??= [];
     run.gateResultIds ??= [];
+    run.gCardIds ??= [];
     run.draftFreezeHash ??= run.hash ?? null;
-    run.definitiveLockHash ??= run.accepted ? run.hash ?? null : null;
+    run.definitiveLockHash ??= null;
+    run.operatorLockAt ??= null;
+    run.surfaceFrozenAt ??= null;
   }
   return project;
 }
@@ -86,7 +169,7 @@ export async function createProject(title: string): Promise<Project> {
   let id = base;
   let counter = 1;
   while (hasDatabase() ? await dbExists(id) : await fileExists(id)) id = `${base}-${++counter}`;
-  const project: Project = { id, title, createdAt: new Date().toISOString(), seedRaw: null, grid: emptyGrid(), messages: [], changeLog: [], contradictions: [], dissent: [], gates: [], runs: [] };
+  const project: Project = { id, title, createdAt: new Date().toISOString(), seedRaw: null, grid: emptyGrid(), messages: [], changeLog: [], employeeTurns: [], gCards: [], contradictions: [], dissent: [], gates: [], runs: [] };
   await save(project);
   return project;
 }
