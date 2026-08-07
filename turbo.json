@@ -9,7 +9,12 @@
     "storage_PRISMA_DATABASE_URL",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
-    "MAESTRO_MODEL"
+    "OPENAI_EXTRACT_MODEL",
+    "MAESTRO_MODEL",
+    "PINECONE_API_KEY",
+    "PINECONE_INDEX_HOST",
+    "PINECONE_INDEX_NAME",
+    "PINECONE_NAMESPACE"
   ],
   "tasks": {
     "build": {
