@@ -15,15 +15,19 @@ export interface ProjectSnapshot {
 
 export interface AuthorityPolicy {
   canAccept(event: MutationEvent): boolean;
+  canResolve(event: MutationEvent): boolean;
   canLock(event: MutationEvent): boolean;
   canReopen(event: MutationEvent): boolean;
 }
 
 export const SAFE_DEFAULT_AUTHORITY_POLICY: AuthorityPolicy = {
   canAccept: (event) => event.actorType === "HUMAN" && event.authority === "ROOT",
-  // Lock authority is intentionally unresolved in replay. The default fails closed.
-  // A runtime profile must inject the replay-backed actor policy before definitive lock.
-  canLock: () => false,
+  canResolve: (event) =>
+    (event.actorType === "EMPLOYEE" && event.authority === "ACCEPTED") ||
+    (event.actorType === "HUMAN" && event.authority === "ROOT"),
+  // After the whole-draft red-pen gate is clean, the bounded controller emits LOCK.
+  // It still cannot author semantic content or clear red-pen items itself.
+  canLock: (event) => event.actorType === "SYSTEM" && event.authority === "ACCEPTED",
   canReopen: (event) => event.actorType === "HUMAN" && event.authority === "ROOT",
 };
 
@@ -60,6 +64,16 @@ function assertEnvelope(snapshot: ProjectSnapshot, event: MutationEvent) {
   if (event.sequence !== snapshot.sequence + 1) throw new Error(`event sequence must be ${snapshot.sequence + 1}`);
 }
 
+function resolveAtom(next: ProjectSnapshot, event: MutationEvent) {
+  const atom = atomFor(next, event.targetAddress);
+  if (!["PROPOSED", "PRESSURED"].includes(atom.state)) throw new Error(`cannot resolve atom from ${atom.state}`);
+  atom.value = event.proposedValue;
+  atom.state = "RESOLVED";
+  atom.resolution = event.proposedValue == null ? "EXPLICIT_NONE" : "VALUE";
+  atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
+  atom.revision += 1;
+}
+
 export function applyMutation(
   snapshot: ProjectSnapshot,
   event: MutationEvent,
@@ -85,17 +99,14 @@ export function applyMutation(
     atom.state = "PRESSURED";
     atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
     atom.revision += 1;
-  } else if (event.command === "ACCEPT" || event.command === "RESOLVE") {
-    if (!authority.canAccept(event)) throw new Error("actor is not authorized to accept/resolve semantic state");
-    const atom = atomFor(next, event.targetAddress);
-    if (!["PROPOSED", "PRESSURED"].includes(atom.state)) throw new Error(`cannot resolve atom from ${atom.state}`);
-    atom.value = event.proposedValue;
-    atom.state = "RESOLVED";
-    atom.resolution = event.proposedValue == null ? "EXPLICIT_NONE" : "VALUE";
-    atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
-    atom.revision += 1;
+  } else if (event.command === "RESOLVE") {
+    if (!authority.canResolve(event)) throw new Error("actor is not authorized to resolve domain state");
+    resolveAtom(next, event);
+  } else if (event.command === "ACCEPT") {
+    if (!authority.canAccept(event)) throw new Error("actor is not authorized for root acceptance");
+    resolveAtom(next, event);
   } else if (event.command === "LOCK") {
-    if (!authority.canLock(event)) throw new Error("definitive-lock authority is unresolved or actor is unauthorized");
+    if (!authority.canLock(event)) throw new Error("actor is not authorized to emit definitive LOCK");
     if (next.phase !== "LOCK_ELIGIBLE") throw new Error(`definitive lock requires LOCK_ELIGIBLE phase, got ${next.phase}`);
     const unresolved = next.technicalUst.filter((atom) => atom.state !== "RESOLVED" && atom.state !== "LOCKED");
     if (unresolved.length) throw new Error(`definitive lock blocked by ${unresolved.length} unresolved addresses`);
