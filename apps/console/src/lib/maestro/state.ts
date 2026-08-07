@@ -47,6 +47,10 @@ function atomFor(snapshot: ProjectSnapshot, address: string): USTAtom {
   return atom;
 }
 
+function mergeEvidence(existing: string[], incoming: string[]): string[] {
+  return Array.from(new Set(existing.concat(incoming)));
+}
+
 function assertEnvelope(snapshot: ProjectSnapshot, event: MutationEvent) {
   if (event.projectId !== snapshot.projectId) throw new Error("event project mismatch");
   if (event.expectedStateVersion !== snapshot.stateVersion) {
@@ -71,7 +75,7 @@ export function applyMutation(
     atom.value = event.proposedValue;
     atom.state = "PROPOSED";
     atom.resolution = event.proposedValue == null ? "DEFERRED" : "VALUE";
-    atom.evidenceRefs = [...new Set([...atom.evidenceRefs, ...event.evidenceRefs])];
+    atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
     atom.revision += 1;
   } else if (event.command === "PRESSURE") {
     const atom = atomFor(next, event.targetAddress);
@@ -79,16 +83,16 @@ export function applyMutation(
       throw new Error(`pressure requires PROPOSED/PRESSURED state, got ${atom.state}`);
     }
     atom.state = "PRESSURED";
-    atom.evidenceRefs = [...new Set([...atom.evidenceRefs, ...event.evidenceRefs])];
+    atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
     atom.revision += 1;
   } else if (event.command === "ACCEPT" || event.command === "RESOLVE") {
     if (!authority.canAccept(event)) throw new Error("actor is not authorized to accept/resolve semantic state");
     const atom = atomFor(next, event.targetAddress);
-    if (!['PROPOSED', 'PRESSURED'].includes(atom.state)) throw new Error(`cannot resolve atom from ${atom.state}`);
+    if (!["PROPOSED", "PRESSURED"].includes(atom.state)) throw new Error(`cannot resolve atom from ${atom.state}`);
     atom.value = event.proposedValue;
     atom.state = "RESOLVED";
     atom.resolution = event.proposedValue == null ? "EXPLICIT_NONE" : "VALUE";
-    atom.evidenceRefs = [...new Set([...atom.evidenceRefs, ...event.evidenceRefs])];
+    atom.evidenceRefs = mergeEvidence(atom.evidenceRefs, event.evidenceRefs);
     atom.revision += 1;
   } else if (event.command === "LOCK") {
     if (!authority.canLock(event)) throw new Error("definitive-lock authority is unresolved or actor is unauthorized");
