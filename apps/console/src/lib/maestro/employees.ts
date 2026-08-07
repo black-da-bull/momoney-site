@@ -88,7 +88,9 @@ function unresolvedEmployee(index: number, name: (typeof MAESTRO_EMPLOYEE_NAMES)
   };
 }
 
-export const EMPLOYEE_REGISTRY: EmployeeModule[] = MAESTRO_EMPLOYEE_NAMES.map(unresolvedEmployee);
+export const EMPLOYEE_REGISTRY: EmployeeModule[] = MAESTRO_EMPLOYEE_NAMES.map(
+  (name, index) => unresolvedEmployee(index, name),
+);
 
 export function executableEmployees(): EmployeeModule[] {
   return EMPLOYEE_REGISTRY.filter((employee) => employee.recoveryStatus === "RECOVERED");
