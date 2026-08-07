@@ -6,7 +6,6 @@ export const CONTROLLER_ALLOWED_ACTIONS = [
   "freeze",
   "promote",
   "package",
-  "manage_runtime_coherence",
 ] as const;
 
 export const CONTROLLER_FORBIDDEN_ACTIONS = [
@@ -17,6 +16,7 @@ export const CONTROLLER_FORBIDDEN_ACTIONS = [
   "substitute_for_employee_module_behavior",
   "invent_authority_structures",
   "rewrite_red_pen_items",
+  "manage_runtime_coherence_by_semantic_discretion",
 ] as const;
 
 export type ControllerAllowedAction = (typeof CONTROLLER_ALLOWED_ACTIONS)[number];
